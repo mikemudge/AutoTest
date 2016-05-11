@@ -1,84 +1,47 @@
-import config
-import logging
+import json
 import nose
 import os
 import subprocess
 import sys
 
-from nose.plugins import Plugin
+def test_server(test_pattern=['!screenshot']):
+    from tests.server import base_test_case
+    reload(base_test_case)
+    import config
+    reload(config)
 
-log = logging.getLogger('nose.plugins.helloworld')
+    args = sys.argv[:1]
+    # Comma does an and.
+    # args.append('-a !screenshot,!local')
+    # Repeat -a does an or
+    # args.append('-a !screenshot -a !local')
+    args.append('-a %s' % ','.join(test_pattern))
 
-class HelloWorld(Plugin):
-    name = 'helloworld'
+    # Running server tests with nose.
+    nose.core.run(defaultTest="tests/", argv=args)
 
-    def options(self, parser, env=os.environ):
-        super(HelloWorld, self).options(parser, env=env)
+    if 'last' not in base_test_case.results:
+        raise Exception('Something went wrong, results was not updated. \n%r', base_test_case.results)
 
-    def configure(self, options, conf):
-        super(HelloWorld, self).configure(options, conf)
-        self.results = []
-        self.enabled = True
-        if not self.enabled:
-            return
+    return base_test_case.results
 
-    def addError(self, test, err):
-        print 'error'
-        result = {
-            'success': False,
-            'result': 'error',
-            'error': err,
-            'module': test.test.__class__.__module__,
-            'name': test.test.__class__.__name__,
-            'method': test.test._testMethodName
-        }
-        self.results.append(result)
+def test_client():
+    # Client testing
+    if os.path.isfile('results.json'):
+        os.remove('results.json')
 
-    # TODO not sure that this gets called.
-    def addFailure(self, test, err):
-        print 'failure'
-        result = {
-            'success': False,
-            'result': 'failure',
-            'failure': err,
-            'module': test.test.__class__.__module__,
-            'name': test.test.__class__.__name__,
-            'method': test.test._testMethodName
-        }
-        self.results.append(result)
+    # Running client tests with karma.
+    command = ["karma", "start", os.getcwd() + "/tests/karma-auto.conf.js"]
+    print ' '.join(command)
+    subprocess.call(command)
 
-    def addSuccess(self, test):
-        print 'success'
-        result = {
-            'success': True,
-            'result': 'success',
-            'module': test.test.__class__.__module__,
-            'name': test.test.__class__.__name__,
-            'method': test.test._testMethodName
-        }
-        self.results.append(result)
+    with open("results.json") as f:
+        result = json.load(f)
 
-    def finalize(self, result):
-        # TODO parse result?
-        self.result = result
+        if len(result.get('result')) == 0:
+            # Might need https://github.com/douglasduteil/karma-json-reporter/issues/13
+            # /usr/local/lib/node_modules/karma-json-reporter/index.js
+            raise Exception('Something went wrong, no client results')
 
-def run_tests():
-    print 'testing %s' % config.PROJECT_PATH
-    os.chdir(config.PROJECT_PATH)
-
-    try:
-        subprocess.check_output('git pull'.split())
-    except subprocess.CalledProcessError as e:
-        print 'Cmd: %s returned %s' % (e.cmd, e.returncode)
-
-    # Run tests?
-    myplugin = HelloWorld()
-    nose.run(defaultTest=config.PROJECT_PATH, addplugins=[myplugin])
-
-    for test in myplugin.results:
-        print test
-    # gather results???
-
-if __name__ == '__main__':
-    print sys.argv
-    run_tests()
+    os.remove('results.json')
+    return result.get('result')
