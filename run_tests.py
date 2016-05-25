@@ -1,15 +1,12 @@
+import auto_config
 import json
 import nose
 import os
 import subprocess
 import sys
+import nose_plugin
 
 def test_server(test_pattern=['!screenshot']):
-    from tests.server import base_test_case
-    reload(base_test_case)
-    import config
-    reload(config)
-
     args = sys.argv[:1]
     # Comma does an and.
     # args.append('-a !screenshot,!local')
@@ -18,12 +15,13 @@ def test_server(test_pattern=['!screenshot']):
     args.append('-a %s' % ','.join(test_pattern))
 
     # Running server tests with nose.
-    nose.core.run(defaultTest="tests/", argv=args)
+    myplugin = nose_plugin.HelloWorld()
+    nose.run(defaultTest="tests/server", addplugins=[myplugin], argv=args)
 
-    if 'last' not in base_test_case.results:
-        raise Exception('Something went wrong, results was not updated. \n%r', base_test_case.results)
+    if len(myplugin.results) == 0:
+        raise Exception('Something went wrong, results was not updated. \n%r', myplugin.results)
 
-    return base_test_case.results
+    return myplugin.results
 
 def test_client():
     # Client testing
@@ -45,3 +43,17 @@ def test_client():
 
     os.remove('results.json')
     return result.get('result')
+
+if __name__ == '__main__':
+
+    sys.path.insert(0, auto_config.PROJECT_PATH)
+    os.chdir(auto_config.PROJECT_PATH)
+
+    print "Running server tests"
+    serverResults = test_server()
+    print serverResults
+    print json.dumps(serverResults, separators=(',', ':'), indent=4)
+
+    print "Running client tests"
+    clientResults = test_client()
+    print json.dumps(clientResults, separators=(',', ':'), indent=4)

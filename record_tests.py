@@ -43,18 +43,15 @@ def run_all_tests(branch, commit_hash):
                 failure_count = failure_count + 1
             results[name] = test
 
-    for test in serverResults['run']:
-        results[test] = TestResult(result="success", path=test)
-
-    for (test, errorOutput) in serverResults['last'].errors:
-        results[test.id()].result = "error"
-        error_count = error_count + 1
-        results[test.id()].message = errorOutput
-
-    for (test, errorOutput) in serverResults['last'].failures:
-        results[test.id()].result = "failure"
-        failure_count = failure_count + 1
-        results[test.id()].message = errorOutput
+    for test in serverResults:
+        testName = "%s.%s.%s" % (test['module'], test['name'], test['method'])
+        result = TestResult(result=test['result'], path=testName)
+        if not test.get('success', False):
+            failure_count += 1
+        if 'failure' in test:
+            result.message = test['failure']
+        # TODO error count?
+        results[testName] = result
 
     testRun = TestRun(
         branch=branch,
@@ -71,6 +68,43 @@ def run_all_tests(branch, commit_hash):
         testRun.results.append(testResult)
 
     return testRun
+
+def test_branch(branch):
+    print "Testing branch %s" % branch.name
+
+    # Get into that branch
+    print "git checkout " + branch.name
+    output = subprocess.check_output(["git", "checkout", branch.name])
+    print output
+
+    print "git pull"
+    output = subprocess.check_output(["git", "pull"])
+    print output
+
+    commit_hash = subprocess.check_output(["git", "rev-parse", 'origin/%s' % branch.name]).strip()
+    return run_all_tests(branch, commit_hash)
+
+def run_tests(testBranches):
+    print "Testing branches", [t.name for t in testBranches]
+
+    errorOccured = False
+    testRuns = []
+    for branch in testBranches:
+        try:
+            testRuns.append(test_branch(branch))
+        except Exception as e:
+            errorOccured = True
+            print e
+            traceback.print_exc()
+
+    # Return to master branch.
+    print "git checkout master"
+    output = subprocess.check_output(["git", "checkout", "master"])
+    print output
+
+    if errorOccured:
+        raise Exception("There was an error during testing")
+    return testRuns
 
 def cleanUp():
     try:
@@ -94,96 +128,111 @@ def cleanUp():
         # This is just a nice to have.
         print "Couldn't remove local branches", mergedBranches, e
 
-def check_status(branch):
-    branchName = 'origin/%s' % branch.name
+def check_status(branch, session):
+    if branch.name.startswith('origin/'):
+        print "Bad branch", branch.name, branch.id
+        exit(1)
 
-    if not branch:
-        print "No existing branch for %s, running all tests." % branchName
-        # Need to run the tests.
+    branchName = branch.name
+
+    if not branch.id:
+        print "%s - New Branch, running all tests." % branchName
         return True
 
     latestTestRun = session.query(TestRun).filter(TestRun.branch == branch).order_by(desc(TestRun.created_date)).limit(1).first()
     if not latestTestRun:
-        print "No previous test run for %s, running all tests." % branchName
+        print "%s - No previous test run, running all tests." % branchName
         # Need to run the tests.
         return True
 
     commit_hash = subprocess.check_output(["git", "rev-parse", branchName]).strip()
     if latestTestRun.commit_hash == commit_hash:
         # No testing required?
-        print "Commit hashes match for %s, not testing" % branchName
+        print "%s - Commit hashes match, not testing" % branchName
         return False
 
-    print "New commit hash for %s, running all tests." % branchName
+    print "%s - New commit hash, running all tests." % branchName
     return True
 
-def test_branch(branch):
-    print "Testing branch %s" % branch.name
-
-    # Get into that branch
-    print "git checkout " + branch.name
-    output = subprocess.check_output(["git", "checkout", branch.name])
-    print output
-
-    print "git pull"
-    output = subprocess.check_output(["git", "pull"])
-    print output
-
-    commit_hash = subprocess.check_output(["git", "rev-parse", 'origin/%s' % branch.name]).strip()
-    testRun = run_all_tests(branch, commit_hash)
-    session.add(testRun)
-    session.commit()
-
-if __name__ == '__main__':
-    baseFolder = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-    sys.path.insert(0, baseFolder)
-    import config
-
-    print 'Test runner is running from', baseFolder
-    print 'cwd is', os.getcwd()
-    print 'on branch', subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
-
-    testProject = os.path.dirname(baseFolder) + '/WebPlatformTest'
-    sys.path.insert(0, testProject)
-    print 'Tests are running in', testProject
-    oldDir = os.getcwd()
-    os.chdir(testProject)
-
-    if config.TEST_DB_FILE == '../WebPlatform/local_tests.sqlite':
-        # Put results in WebPlatform so they will get sync'd to mudge.dev.8i.com for viewing.
-        localTesting = os.path.dirname(baseFolder) + '/WebPlatform'
-        engine = create_engine('sqlite:///' + localTesting + '/local_tests.sqlite')
-        print 'Test results are in ', localTesting + '/local_tests.sqlite'
-    else:
-        engine = create_engine('sqlite:///' + testProject + '/local_tests.sqlite')
-        print 'Test results are in ', testProject + '/local_tests.sqlite'
-
+def test_project(testProject, session):
     d = os.getcwd()
     if d != testProject:
         print "Not in testProject.", d
         exit(1)
+
+    # Do test stuff.
     originalBranch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
 
     if originalBranch != 'master':
-        print "Not in master branch, not doing anything.", d, originalBranch
+        print "Not in master branch, not doing anything.", testProject, originalBranch
         exit(1)
 
     try:
+        # Update the testProject branches.
         print "git pull"
-        output = subprocess.check_output(["git", "pull"])
-        # TODO if this branch updates we should re test all?
-        # This is the test runner branch so only need to if one of the test running files updates?
-        print output
+        subprocess.check_output(["git", "pull"])
+        # This will update the commit hashes for all branches known to the test project.
     except subprocess.CalledProcessError as e:
-        # I don't think this matters much as it only means that this file is not going to be updated.
-        print "Failed to update the test runner branch"
-
-    # if returncode != 0:
-    #     print "git pull failed with error code %s" % returncode
+        print e
+        print "Failed to update the test project branch"
+        # As the commit hashes won't be updated, I don't think any tests will actually run?
 
     # Clean up old branches locally and on remote.
     cleanUp()
+
+    dbBranches = {b.name: b for b in session.query(Branch).all()}
+    print "db branches =", [str(v.id) + "-" + str(b) for b, v in dbBranches.iteritems()]
+
+    branches = subprocess.check_output(["git", "branch", "-r"]).strip()
+    # split on whitespace and ignore origin/HEAD -> origin/master
+    branches = branches.replace('origin/HEAD -> origin/master', '').split()
+
+    # Some branches get out of date and no longer run.
+    # TODO Assuming all branches start with origin/ is a bit near sighted.
+    branches = [b[7:] for b in branches if b not in auto_config.TEST_EXCLUDE_BRANCHES]
+    print 'current branches', [b for b in branches]
+
+    # Update database with merged branches.
+    for key, branch in dbBranches.iteritems():
+        if (branch.name not in branches):
+            if not branch.merged:
+                print branch.name, "marked as merged"
+            branch.merged = True
+        else:
+            branch.merged = False
+
+    force = "force" in sys.argv
+
+    testBranches = []
+    if "single" in sys.argv:
+        testBranches = [dbBranches.get("master", Branch(name="master"))]
+    else:
+        for branchName in branches:
+            # Remove origin/ from the branch name.
+            dbBranch = dbBranches.get(branchName)
+            if not dbBranch:
+                dbBranch = Branch(name=branchName)
+
+            if force or check_status(dbBranch, session):
+                testBranches.append(dbBranch)
+
+    if "skiptests" in sys.argv:
+        print "skipping testing", [t.name for t in testBranches]
+        session.commit()
+        return
+
+    testRuns = run_tests(testBranches)
+
+    if not testRuns or len(testRuns) == 0:
+        print "No test runs?"
+    for testRun in testRuns:
+        print "adding test run for", testRun.branch.name
+        session.add(testRun)
+        session.commit()
+
+def create_db_session(testProject):
+    engine = create_engine('sqlite:///' + testProject + '/local_tests.sqlite')
+    print 'Test results are in ', testProject + '/local_tests.sqlite'
 
     if "reset" in sys.argv:
         print "Wiping database of all test results due to reset arg."
@@ -194,53 +243,26 @@ if __name__ == '__main__':
 
     Session = sessionmaker(bind=engine)
     session = Session()
-    dbBranches = {b.name: b for b in session.query(Branch).all()}
-    print "db branches = ", [str(b) for b in list(dbBranches)]
+    return session
 
-    branches = subprocess.check_output(["git", "branch", "-r"]).strip()
-    # split on whitespace and ignore origin/HEAD -> origin/master
-    branches = branches.replace('origin/HEAD -> origin/master', '').split()
+if __name__ == '__main__':
+    import auto_config
 
-    # Some branches get out of date and no longer run.
-    branches = [b[7:] for b in branches if b not in config.TEST_EXCLUDE_BRANCHES]
-    print 'found branches', branches
+    branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
+    print 'Test runner is running from', os.getcwd(), 'on branch', branch
+    # The test runner is currently only manually updated.
 
-    force = "force" in sys.argv
+    testProject = auto_config.PROJECT_PATH
+    sys.path.insert(0, testProject)
+    print 'Tests are running in', testProject
+    oldDir = os.getcwd()
+    os.chdir(testProject)
 
-    testBranches = []
-    for branchName in branches:
-        # Remove origin/ from the branch name.
-        dbBranch = dbBranches.get(branchName)
-        if not dbBranch:
-            dbBranch = Branch(name=branchName)
-
-        if force or check_status(dbBranch):
-            testBranches.append(dbBranch)
-
-    errorOccured = False
-    for branch in testBranches:
-        try:
-            test_branch(branch)
-        except Exception as e:
-            errorOccured = True
-            print e
-
-    print "git checkout master"
-    output = subprocess.check_output(["git", "checkout", "master"])
-    print output
-
-    # Update database with merged branches.
-    for key, branch in dbBranches.iteritems():
-        if (branch.name not in branches):
-            if not branch.merged:
-                print branch.name, "marked as merged"
-            branch.merged = True
-        else:
-            branch.merged = False
-    session.commit()
+    try:
+        session = create_db_session(testProject)
+        test_project(testProject, session)
+    except Exception as e:
+        os.chdir(oldDir)
+        raise e
 
     os.chdir(oldDir)
-
-    if errorOccured:
-        # Will cause cron to fail and send logs.
-        exit(1)
