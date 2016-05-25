@@ -1,42 +1,24 @@
-import sys
-import os
+import auto_config
+import test_models
 
-# Include the parent folder so we can use python modules like "tests"
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-
-import models
 from flask import abort
-from tests.record_results import engine, Base, Branch, TestResult, TestRun, Session
-from sqlalchemy import desc, func
-from datetime import datetime
+from test_models import Branch, TestRun
+from sqlalchemy import create_engine, desc
+from sqlalchemy.orm import sessionmaker
 
-def show_test_results():
-    session = Session()
-
-    print datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    testRuns = session.query(TestRun).count()
-    print "%r test runs" % testRuns
-
-    latestTestRun = session.query(TestRun).order_by(desc(TestRun.created_date)).limit(1).first()
-    if latestTestRun:
-        print "Latest Run: %r" % latestTestRun
-        for testResult in latestTestRun.results:
-            print "{0:90} {1}".format(testResult.path, testResult.result)
-
-    testProblems = session.query(TestResult.path, TestResult.result, func.count(TestResult.id)).filter(TestResult.result != "success").group_by(TestResult).all()
-
-    print "%r failures" % len(testProblems)
-    for testResult in testProblems:
-        print testResult[0], testResult[1], testResult[2], testResult[3].strftime("%Y-%m-%d %H:%M:%S")
+testProject = auto_config.PROJECT_PATH + '/' + auto_config.TEST_DB_FILE
+testProject = '/Users/mudge/projects/AutoTestWeb/local_tests.sqlite'
+engine = create_engine('sqlite:///' + testProject)
+Session = sessionmaker(bind=engine)
 
 def getTestRuns():
     session = Session()
     # TODO query grouped on branch?
-    branches = session.query(Branch).all()
+    branches = session.query(Branch).filter_by(merged=False).all()
     result = []
     for branch in branches:
-        b = models.simpleSerialize(branch)
-        b['runs'] = [models.simpleSerialize(t) for t in branch.runs]
+        b = test_models.simpleSerialize(branch)
+        b['runs'] = [test_models.simpleSerialize(t) for t in branch.runs]
         result.append(b)
     return result
 
@@ -44,14 +26,24 @@ def getTestRun(test_run_id):
     session = Session()
     testRun = session.query(TestRun).get(test_run_id) or abort(404)
 
-    data = models.simpleSerialize(testRun)
-    data['results'] = [models.simpleSerialize(t) for t in testRun.results]
+    data = test_models.simpleSerialize(testRun)
+    data['results'] = [test_models.simpleSerialize(t) for t in testRun.results]
     return data
 
+def show_test_results():
+    session = Session()
+    print 'Displaying results in', testProject
+
+    branches = session.query(Branch).filter_by().all()
+    print "%r Branches" % len(branches)
+
+    for branch in branches:
+        if branch.merged:
+            continue
+        latestTestRun = branch.runs.order_by(desc(TestRun.created_date)).first()
+        print "Branch: %s - %r test runs" % (branch.name, branch.runs.count())
+        print "latest run - failures: %r, errors: %r" % (latestTestRun.failure_count, latestTestRun.error_count)
+        print ""
+
 if __name__ == '__main__':
-    # Create table if it doesn't exist
-    Base.metadata.create_all(engine)
-
     show_test_results()
-
-# rsync -a /Users/mudge/projects/WebPlatform/ mudge@mudge.dev.8i.com:/home/mudge/projects/WebPlatformTest --exclude="*.log" --exclude="local_tests.sqlite"

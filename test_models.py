@@ -25,7 +25,7 @@ class TestRun(Base):
     created_date = Column(DateTime, default=datetime.utcnow)
 
     def __repr__(self):
-        return "%s @ %s" % (self.branch, self.created_date.strftime("%Y-%m-%d %H:%M:%S"))
+        return "%s @ %s" % (self.branch.name, self.created_date.strftime("%Y-%m-%d %H:%M:%S"))
 
 # A test result is the result of a single test.
 class TestResult(Base):

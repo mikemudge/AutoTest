@@ -1,4 +1,3 @@
-import config
 import logging
 import nose
 import os
@@ -62,10 +61,7 @@ class HelloWorld(Plugin):
         # TODO parse result?
         self.result = result
 
-def run_tests():
-    print 'testing %s' % config.PROJECT_PATH
-    os.chdir(config.PROJECT_PATH)
-
+def run_tests(testPath):
     try:
         subprocess.check_output('git pull'.split())
     except subprocess.CalledProcessError as e:
@@ -73,7 +69,7 @@ def run_tests():
 
     # Run tests?
     myplugin = HelloWorld()
-    nose.run(defaultTest=config.PROJECT_PATH, addplugins=[myplugin])
+    nose.run(defaultTest=testPath, addplugins=[myplugin])
 
     for test in myplugin.results:
         print test
@@ -81,4 +77,4 @@ def run_tests():
 
 if __name__ == '__main__':
     print sys.argv
-    run_tests()
+    run_tests('tests/server')
