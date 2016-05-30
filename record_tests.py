@@ -49,7 +49,8 @@ def run_all_tests(branch, commit_hash):
         if not test.get('success', False):
             failure_count += 1
         if 'failure' in test:
-            result.message = test['failure']
+            # TODO format this nicer, its an AssertionError.
+            result.message = str(test['failure'])
         # TODO error count?
         results[testName] = result
 
@@ -223,7 +224,9 @@ def test_project(testProject, session):
 
     testRuns = run_tests(testBranches)
 
-    if not testRuns or len(testRuns) == 0:
+    if len(testBranches) == 0:
+        print "No branches require testing"
+    elif not testRuns or len(testRuns) == 0:
         print "No test runs?"
     for testRun in testRuns:
         print "adding test run for", testRun.branch.name
@@ -231,8 +234,13 @@ def test_project(testProject, session):
         session.commit()
 
 def create_db_session(testProject):
-    engine = create_engine('sqlite:///' + testProject + '/local_tests.sqlite')
-    print 'Test results are in ', testProject + '/local_tests.sqlite'
+    if os.path.isabs(auto_config.TEST_DB_FILE):
+        localTests = auto_config.TEST_DB_FILE
+    else:
+        localTests = testProject + auto_config.TEST_DB_FILE
+
+    engine = create_engine('sqlite:///' + localTests)
+    print 'Test results are in ', localTests
 
     if "reset" in sys.argv:
         print "Wiping database of all test results due to reset arg."
