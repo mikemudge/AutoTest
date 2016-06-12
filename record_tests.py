@@ -146,7 +146,14 @@ def check_status(branch, session):
         # Need to run the tests.
         return True
 
-    commit_hash = subprocess.check_output(["git", "rev-parse", branchName]).strip()
+    if branch.force_run:
+        # No testing required?
+        print "%s - run forced by force_run=True, running all tests." % branchName
+        branch.force_run = False
+        session.commit()
+        return True
+
+    commit_hash = subprocess.check_output(["git", "rev-parse", "origin/%s" % branchName]).strip()
     if latestTestRun.commit_hash == commit_hash:
         # No testing required?
         print "%s - Commit hashes match, not testing" % branchName
@@ -247,7 +254,31 @@ def create_db_session(testProject):
         Base.metadata.drop_all(engine)
 
     # Always create all, incase none exist.
+    # If it doesn't match then we should migrate?
+    # New tables are easy, sohuld just work with this.
+    # new columns are more tricky and not automatically supported.
+    # Removing isn't supported.
     Base.metadata.create_all(engine)
+
+    if "upgradedb" in sys.argv:
+        # Iterate tables and there columns to see if there is some new things.
+        from sqlalchemy import MetaData
+        print Base.metadata
+        metadata = MetaData()
+        metadata.reflect(engine)
+        # Iterate all tables and columns and make sure they all exist.
+        # TODO works for simple types, but not throughly tested.
+        for t in Base.metadata.sorted_tables:
+            t2 = metadata.tables[t.name]
+            print "Table", t.name, t2.name
+            for c in t.columns:
+                # This has force_run because its generated from the classes.
+                print c.name
+                if c.name not in t2.columns:
+                    print "need to add ", c.name, "with type", c.type
+                    format_str = ("ALTER TABLE '{table_name}' ADD column '{column_name}' '{data_type}'")
+                    sql_command = format_str.format(table_name=t.name, column_name=c.name, data_type=c.type)
+                    engine.execute(sql_command)
 
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -266,11 +297,11 @@ if __name__ == '__main__':
     oldDir = os.getcwd()
     os.chdir(testProject)
 
-    try:
-        session = create_db_session(testProject)
-        test_project(testProject, session)
-    except Exception as e:
-        os.chdir(oldDir)
-        raise e
+    # try:
+    session = create_db_session(testProject)
+    test_project(testProject, session)
+    # except Exception as e:
+    #     os.chdir(oldDir)
+    #     raise e
 
     os.chdir(oldDir)

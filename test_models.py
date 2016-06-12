@@ -52,3 +52,5 @@ class Branch(Base):
     name = Column(String)
     # If the branch has been merged, there will be no further tests run on it.
     merged = Column(Boolean, default=False)
+    # Forces the tests to run again even if the commit hash doesn't change.
+    force_run = Column(Boolean, default=False)
