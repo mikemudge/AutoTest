@@ -1,4 +1,5 @@
 import auto_config
+import os
 import test_models
 
 from flask import abort
@@ -6,8 +7,9 @@ from test_models import Branch, TestRun
 from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker
 
-testProject = auto_config.PROJECT_PATH + '/' + auto_config.TEST_DB_FILE
-testProject = '/Users/mudge/projects/AutoTestWeb/local_tests.sqlite'
+testProject = os.path.join(auto_config.PROJECT_PATH, auto_config.TEST_DB_FILE)
+testProject = '/Users/mudge/projects/WebPlatform/local_tests.sqlite'
+print testProject
 engine = create_engine('sqlite:///' + testProject)
 Session = sessionmaker(bind=engine)
 
@@ -29,6 +31,18 @@ def getTestRun(test_run_id):
     data = test_models.simpleSerialize(testRun)
     data['results'] = [test_models.simpleSerialize(t) for t in testRun.results]
     return data
+
+def saveBranch(branch_id, updateData):
+    session = Session()
+    branch = session.query(Branch).get(branch_id) or abort(404)
+    # Only updatable field.
+    branch.force_run = updateData['force_run']
+    session.merge(branch)
+    session.commit()
+    session.flush()
+    session.refresh(branch)
+    result = test_models.simpleSerialize(branch)
+    return result
 
 def show_test_results():
     session = Session()

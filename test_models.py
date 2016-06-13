@@ -54,3 +54,16 @@ class Branch(Base):
     merged = Column(Boolean, default=False)
     # Forces the tests to run again even if the commit hash doesn't change.
     force_run = Column(Boolean, default=False)
+
+def simpleSerialize(thing, exclude=[]):
+    result = {}
+    for k, v in vars(thing).items():
+        if k in exclude:
+            continue
+        if type(v) in [unicode, bool, int, long]:
+            result[k] = v
+        elif type(v) == datetime:
+            result[k] = v.isoformat() + 'Z'
+        # else:
+        #     print "Unknown type ", type(v)
+    return result

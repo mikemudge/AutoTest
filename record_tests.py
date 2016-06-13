@@ -190,6 +190,7 @@ def test_project(testProject, session):
 
     dbBranches = {b.name: b for b in session.query(Branch).all()}
     print "db branches =", [str(v.id) + "-" + str(b) for b, v in dbBranches.iteritems()]
+    print [v.force_run for b, v in dbBranches.iteritems()]
 
     branches = subprocess.check_output(["git", "branch", "-r"]).strip()
     # split on whitespace and ignore origin/HEAD -> origin/master
