@@ -290,6 +290,7 @@ if __name__ == '__main__':
 
     branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
     print 'Test runner is running from', os.getcwd(), 'on branch', branch
+    print 'Tests run at', datetime.now()
     # The test runner is currently only manually updated.
 
     testProject = auto_config.PROJECT_PATH
