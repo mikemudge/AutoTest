@@ -49,11 +49,23 @@ if __name__ == '__main__':
     sys.path.insert(0, auto_config.PROJECT_PATH)
     os.chdir(auto_config.PROJECT_PATH)
 
-    print "Running server tests"
-    serverResults = test_server()
-    print serverResults
-    print json.dumps(serverResults, separators=(',', ':'), indent=4)
+    if len(sys.argv) > 1:
+        args = sys.argv
+    else:
+        args = ['server', 'client']
 
-    print "Running client tests"
-    clientResults = test_client()
-    print json.dumps(clientResults, separators=(',', ':'), indent=4)
+    if 'server' in args:
+        print "Running server tests"
+        serverResults = test_server()
+        print serverResults
+        print json.dumps(serverResults, separators=(',', ':'), indent=4)
+
+    if 'client' in args:
+        print "Running client tests"
+        clientResults = test_client()
+        # print json.dumps(clientResults, separators=(',', ':'), indent=4)
+        for (id, results) in clientResults.iteritems():
+            for result in results:
+                # TODO count things?
+                if not result['success']:
+                    print result

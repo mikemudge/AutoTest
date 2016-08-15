@@ -8,6 +8,7 @@ from test_models import Base, Branch, TestResult, TestRun
 from run_tests import test_client, test_server
 from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import OperationalError
 
 def run_all_tests(branch, commit_hash):
     results = {}
@@ -239,6 +240,13 @@ def test_project(testProject, session):
     for testRun in testRuns:
         print "adding test run for", testRun.branch.name
         session.add(testRun)
+
+    try:
+        session.commit()
+        # Saw a disk I/O error once, not sure how they happen.
+    except OperationalError as e:
+        # Try again.
+        print "Got error during commit, trying again:", e
         session.commit()
 
 def create_db_session(testProject):
