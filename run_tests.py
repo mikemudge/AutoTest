@@ -44,8 +44,8 @@ def test_client():
     os.remove('results.json')
     return result.get('result')
 
-if __name__ == '__main__':
 
+if __name__ == '__main__':
     sys.path.insert(0, auto_config.PROJECT_PATH)
     os.chdir(auto_config.PROJECT_PATH)
 
@@ -65,6 +65,7 @@ if __name__ == '__main__':
         clientResults = test_client()
         # print json.dumps(clientResults, separators=(',', ':'), indent=4)
         for (id, results) in clientResults.iteritems():
+            print len(results), 'tests run, failures shown below'
             for result in results:
                 # TODO count things?
                 if not result['success']:

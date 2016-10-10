@@ -43,6 +43,9 @@ def run_all_tests(branch, commit_hash):
                 test.result = "failure"
                 failure_count = failure_count + 1
             results[name] = test
+        if (len(tests) != len(results)):
+            print "something went wrong", len(tests), len(results)
+    print "clientResults processed, totalLength:", len(results)
 
     for test in serverResults:
         testName = "%s.%s.%s" % (test['module'], test['name'], test['method'])
@@ -54,6 +57,7 @@ def run_all_tests(branch, commit_hash):
             result.message = str(test['failure'])
         # TODO error count?
         results[testName] = result
+    print "serverResults processed, totalLength:", len(results)
 
     testRun = TestRun(
         branch=branch,
@@ -93,7 +97,9 @@ def run_tests(testBranches):
     testRuns = []
     for branch in testBranches:
         try:
-            testRuns.append(test_branch(branch))
+            testRun = test_branch(branch)
+            print "db rows created, totalLength:", testRun.results.count()
+            testRuns.append(testRun)
         except Exception as e:
             errorOccured = True
             print e
