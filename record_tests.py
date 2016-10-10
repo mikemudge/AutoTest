@@ -8,6 +8,7 @@ from test_models import Base, Branch, TestResult, TestRun
 from run_tests import test_client, test_server
 from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import OperationalError
 
 def run_all_tests(branch, commit_hash):
     results = {}
@@ -42,6 +43,9 @@ def run_all_tests(branch, commit_hash):
                 test.result = "failure"
                 failure_count = failure_count + 1
             results[name] = test
+        if (len(tests) != len(results)):
+            print "something went wrong", len(tests), len(results)
+    print "clientResults processed, totalLength:", len(results)
 
     for test in serverResults:
         testName = "%s.%s.%s" % (test['module'], test['name'], test['method'])
@@ -53,6 +57,7 @@ def run_all_tests(branch, commit_hash):
             result.message = str(test['failure'])
         # TODO error count?
         results[testName] = result
+    print "serverResults processed, totalLength:", len(results)
 
     testRun = TestRun(
         branch=branch,
@@ -92,7 +97,9 @@ def run_tests(testBranches):
     testRuns = []
     for branch in testBranches:
         try:
-            testRuns.append(test_branch(branch))
+            testRun = test_branch(branch)
+            print "db rows created, totalLength:", testRun.results.count()
+            testRuns.append(testRun)
         except Exception as e:
             errorOccured = True
             print e
@@ -146,7 +153,14 @@ def check_status(branch, session):
         # Need to run the tests.
         return True
 
-    commit_hash = subprocess.check_output(["git", "rev-parse", branchName]).strip()
+    if branch.force_run:
+        # No testing required?
+        print "%s - run forced by force_run=True, running all tests." % branchName
+        branch.force_run = False
+        session.commit()
+        return True
+
+    commit_hash = subprocess.check_output(["git", "rev-parse", "origin/%s" % branchName]).strip()
     if latestTestRun.commit_hash == commit_hash:
         # No testing required?
         print "%s - Commit hashes match, not testing" % branchName
@@ -183,6 +197,7 @@ def test_project(testProject, session):
 
     dbBranches = {b.name: b for b in session.query(Branch).all()}
     print "db branches =", [str(v.id) + "-" + str(b) for b, v in dbBranches.iteritems()]
+    print [v.force_run for b, v in dbBranches.iteritems()]
 
     branches = subprocess.check_output(["git", "branch", "-r"]).strip()
     # split on whitespace and ignore origin/HEAD -> origin/master
@@ -231,6 +246,13 @@ def test_project(testProject, session):
     for testRun in testRuns:
         print "adding test run for", testRun.branch.name
         session.add(testRun)
+
+    try:
+        session.commit()
+        # Saw a disk I/O error once, not sure how they happen.
+    except OperationalError as e:
+        # Try again.
+        print "Got error during commit, trying again:", e
         session.commit()
 
 def create_db_session(testProject):
@@ -247,7 +269,31 @@ def create_db_session(testProject):
         Base.metadata.drop_all(engine)
 
     # Always create all, incase none exist.
+    # If it doesn't match then we should migrate?
+    # New tables are easy, sohuld just work with this.
+    # new columns are more tricky and not automatically supported.
+    # Removing isn't supported.
     Base.metadata.create_all(engine)
+
+    if "upgradedb" in sys.argv:
+        # Iterate tables and there columns to see if there is some new things.
+        from sqlalchemy import MetaData
+        print Base.metadata
+        metadata = MetaData()
+        metadata.reflect(engine)
+        # Iterate all tables and columns and make sure they all exist.
+        # TODO works for simple types, but not throughly tested.
+        for t in Base.metadata.sorted_tables:
+            t2 = metadata.tables[t.name]
+            print "Table", t.name, t2.name
+            for c in t.columns:
+                # This has force_run because its generated from the classes.
+                print c.name
+                if c.name not in t2.columns:
+                    print "need to add ", c.name, "with type", c.type
+                    format_str = ("ALTER TABLE '{table_name}' ADD column '{column_name}' '{data_type}'")
+                    sql_command = format_str.format(table_name=t.name, column_name=c.name, data_type=c.type)
+                    engine.execute(sql_command)
 
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -258,6 +304,7 @@ if __name__ == '__main__':
 
     branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
     print 'Test runner is running from', os.getcwd(), 'on branch', branch
+    print 'Tests run at', datetime.now()
     # The test runner is currently only manually updated.
 
     testProject = auto_config.PROJECT_PATH
@@ -266,11 +313,11 @@ if __name__ == '__main__':
     oldDir = os.getcwd()
     os.chdir(testProject)
 
-    try:
-        session = create_db_session(testProject)
-        test_project(testProject, session)
-    except Exception as e:
-        os.chdir(oldDir)
-        raise e
+    # try:
+    session = create_db_session(testProject)
+    test_project(testProject, session)
+    # except Exception as e:
+    #     os.chdir(oldDir)
+    #     raise e
 
     os.chdir(oldDir)
